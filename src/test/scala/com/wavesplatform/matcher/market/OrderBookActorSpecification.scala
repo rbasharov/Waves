@@ -33,6 +33,8 @@ class OrderBookActorSpecification extends MatcherSpec("OrderBookActor") with NTP
 
   private def obcTest(f: (AssetPair, ActorRef, TestProbe) => Unit): Unit = obcTestWithPrepare(_ => ()) { (pair, actor, probe) =>
     probe.expectMsg(OrderBookSnapshotUpdated(pair, -1))
+    probe.send(actor, MatcherActor.StartNotifyAddresses)
+    probe.expectMsg(MatcherActor.AddressesNotified(pair))
     f(pair, actor, probe)
   }
 
@@ -90,7 +92,12 @@ class OrderBookActorSpecification extends MatcherSpec("OrderBookActor") with NTP
 
       orderBook ! SaveSnapshot(Long.MaxValue)
       tp.expectMsgType[OrderBookSnapshotUpdated]
+
       orderBook ! RestartActor
+
+      val p = TestProbe()
+      p.send(orderBook, MatcherActor.StartNotifyAddresses)
+      tp.expectMsgType[OrderBookSnapshotUpdated]
 
       tp.receiveN(2) shouldEqual Seq(ord2, ord1).map(o => OrderAdded(LimitOrder(o)))
     }
@@ -107,6 +114,10 @@ class OrderBookActorSpecification extends MatcherSpec("OrderBookActor") with NTP
       actor ! SaveSnapshot(Long.MaxValue)
       tp.expectMsgType[OrderBookSnapshotUpdated]
       actor ! RestartActor
+
+      val p = TestProbe()
+      p.send(actor, MatcherActor.StartNotifyAddresses)
+      tp.expectMsgType[OrderBookSnapshotUpdated]
 
       tp.expectMsg(
         OrderAdded(
@@ -130,6 +141,10 @@ class OrderBookActorSpecification extends MatcherSpec("OrderBookActor") with NTP
       actor ! SaveSnapshot(Long.MaxValue)
       tp.expectMsgType[OrderBookSnapshotUpdated]
       actor ! RestartActor
+
+      val p = TestProbe()
+      p.send(actor, MatcherActor.StartNotifyAddresses)
+      tp.expectMsgType[OrderBookSnapshotUpdated]
 
       val restAmount = ord1.amount + ord2.amount - ord3.amount
       tp.expectMsg(
@@ -157,6 +172,10 @@ class OrderBookActorSpecification extends MatcherSpec("OrderBookActor") with NTP
       tp.expectMsgType[OrderBookSnapshotUpdated]
       actor ! RestartActor
 
+      val p = TestProbe()
+      p.send(actor, MatcherActor.StartNotifyAddresses)
+      tp.expectMsgType[OrderBookSnapshotUpdated]
+
       val restAmount = ord1.amount + ord2.amount + ord3.amount - ord4.amount
       tp.expectMsg(
         OrderAdded(
@@ -182,6 +201,10 @@ class OrderBookActorSpecification extends MatcherSpec("OrderBookActor") with NTP
       actor ! SaveSnapshot(Long.MaxValue)
       tp.expectMsgType[OrderBookSnapshotUpdated]
       actor ! RestartActor
+
+      val p = TestProbe()
+      p.send(actor, MatcherActor.StartNotifyAddresses)
+      tp.expectMsgType[OrderBookSnapshotUpdated]
 
       within(10.seconds) {
         tp.receiveN(100)

@@ -46,11 +46,6 @@ class OrderBookActor(owner: ActorRef,
   private def fullCommands: Receive = executeCommands orElse snapshotsCommands
 
   private def executeCommands: Receive = {
-    case MatcherActor.StartNotifyAddresses =>
-      notifyAddresses = true
-      processEvents(orderBook.allOrders.map(OrderAdded))
-      sender() ! MatcherActor.AddressesNotified(assetPair)
-
     case request: QueueEventWithMeta =>
       if (request.offset <= lastProcessedOffset) sender() ! AlreadyProcessed
       else {
@@ -65,6 +60,11 @@ class OrderBookActor(owner: ActorRef,
             context.stop(self)
         }
       }
+
+    case MatcherActor.StartNotifyAddresses =>
+      notifyAddresses = true
+      processEvents(orderBook.allOrders.map(OrderAdded))
+      sender() ! MatcherActor.AddressesNotified(assetPair)
 
     case ForceStartOrderBook(p) if p == assetPair =>
       sender() ! OrderBookCreated(assetPair)
