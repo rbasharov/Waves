@@ -2,7 +2,8 @@ package com.wavesplatform.matcher.market
 
 import java.util.concurrent.atomic.AtomicReference
 
-import akka.actor.{ActorRef, Props, SupervisorStrategy, Terminated}
+import akka.Done
+import akka.actor.{Actor, ActorRef, Props, SupervisorStrategy, Terminated}
 import akka.persistence._
 import com.google.common.base.Charsets
 import com.wavesplatform.common.state.ByteStr
@@ -30,6 +31,7 @@ class MatcherActor(settings: MatcherSettings,
 
   override def supervisorStrategy: SupervisorStrategy = SupervisorStrategy.stoppingStrategy
 
+  private var notifyAddresses                         = false
   private var tradedPairs: Map[AssetPair, MarketData] = Map.empty
   private var childrenNames: Map[ActorRef, AssetPair] = Map.empty
   private var lastSnapshotSequenceNr: Long            = -1L
@@ -74,6 +76,7 @@ class MatcherActor(settings: MatcherSettings,
     childrenNames += orderBook -> pair
     orderBooks.updateAndGet(_ + (pair -> Right(orderBook)))
     tradedPairs += pair -> createMarketData(pair)
+    if (notifyAddresses) orderBook ! StartNotifyAddresses
     orderBook
   }
 
@@ -143,6 +146,14 @@ class MatcherActor(settings: MatcherSettings,
 
     case request: ForceStartOrderBook =>
       runFor(request.assetPair)((sender, orderBook) => orderBook.tell(request, sender))
+
+    case StartNotifyAddresses =>
+      val s = sender()
+      if (childrenNames.isEmpty) s ! Done
+      else
+        context.actorOf(Props(classOf[OrderBookRecoverAddressesWatchActor], s, childrenNames.keys.toSeq, childrenNames.values.toSet),
+                        "order-book-recover-addresses")
+      notifyAddresses = true
 
     case Shutdown =>
       shutdownStatus = shutdownStatus.copy(initiated = true, onComplete = () => context.stop(self))
@@ -333,6 +344,9 @@ object MatcherActor {
 
   case class MatcherRecovered(oldestEventNr: Long)
 
+  case object StartNotifyAddresses
+  case class AddressesNotified(from: AssetPair)
+
   case object Shutdown
 
   case class AssetInfo(decimals: Int)
@@ -350,5 +364,22 @@ object MatcherActor {
     else if (buffer1.isEmpty) -1
     else if (buffer2.isEmpty) 1
     else ByteArray.compare(buffer1.get, buffer2.get)
+  }
+
+  private class OrderBookRecoverAddressesWatchActor(receiver: ActorRef, orderBooks: Seq[ActorRef], pairs: Set[AssetPair])
+      extends Actor
+      with ScorexLogging {
+    orderBooks.foreach(_ ! StartNotifyAddresses)
+
+    override def receive: Receive = state(pairs)
+
+    private def state(pairs: Set[AssetPair]): Receive = {
+      case AddressesNotified(pair) =>
+        val updatedPairs = pairs - pair
+        if (updatedPairs.isEmpty) {
+          receiver ! Done
+          context.stop(self)
+        } else context.become(state(updatedPairs))
+    }
   }
 }
